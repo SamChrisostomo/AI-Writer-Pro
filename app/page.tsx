@@ -1,5 +1,6 @@
 import { LoginForm } from '@/components/molecules/login-form';
 import { Sparkles } from 'lucide-react';
+import Link from 'next/link';
 
 export default function LoginPage() {
   return (
@@ -12,7 +13,7 @@ export default function LoginPage() {
       </div>
       <LoginForm />
       <p className="mt-8 text-sm text-slate-500 dark:text-slate-400">
-        Não tem uma conta? <a href="#" className="text-slate-900 dark:text-slate-50 font-medium hover:underline">Cadastre-se</a>
+        Não tem uma conta? <Link href="/register" className="text-slate-900 dark:text-slate-50 font-medium hover:underline">Cadastre-se</Link>
       </p>
     </main>
   );

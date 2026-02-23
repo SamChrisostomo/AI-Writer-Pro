@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { 
   LayoutDashboard, 
@@ -14,6 +14,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { Button } from '@/components/atoms/button';
+import { supabase } from '@/lib/supabase';
 
 const navItems = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
@@ -22,8 +23,15 @@ const navItems = [
 ];
 
 export function Sidebar() {
+  const router = useRouter();
   const pathname = usePathname();
   const [isOpen, setIsOpen] = React.useState(false);
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push('/');
+    router.refresh();
+  }
 
   return (
     <>
@@ -70,13 +78,13 @@ export function Sidebar() {
           </nav>
 
           <div className="pt-6 border-t border-slate-200 dark:border-slate-800">
-            <Link
-              href="/"
-              className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+            <button
+              onClick={handleLogout}
+              className="flex w-full items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
             >
               <LogOut className="h-5 w-5" />
               Sair
-            </Link>
+            </button>
           </div>
         </div>
       </aside>
