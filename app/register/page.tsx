@@ -41,7 +41,7 @@ export default function RegisterPage() {
   async function onSubmit(data: RegisterValues) {
     setIsLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
         options: {
@@ -51,7 +51,21 @@ export default function RegisterPage() {
         },
       });
 
-      if (error) throw error;
+      if (authError) throw authError;
+
+      // Insert into public.users table to get the integer ID
+      if (authData.user) {
+        const { error: publicUserError } = await supabase.from('users').insert({
+          name: data.name,
+          email: data.email,
+        });
+
+        if (publicUserError) {
+          console.error('Error creating public user:', publicUserError);
+          // We don't necessarily want to fail the whole registration if this fails,
+          // but for this app it's critical for the integer ID.
+        }
+      }
 
       toast.success('Cadastro realizado! Verifique seu e-mail ou faça login.');
       router.push('/');

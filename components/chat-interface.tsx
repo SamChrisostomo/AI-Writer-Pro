@@ -4,10 +4,15 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Loader2, Send, History, Settings, MessageSquare } from 'lucide-react';
+import { Loader2, Send, History, Settings, MessageSquare, Sparkles, FileQuestion } from 'lucide-react';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/atoms/button';
+import { Input } from '@/components/atoms/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/atoms/card';
+import { Badge } from '@/components/atoms/badge';
 import {
   Form,
   FormControl,
@@ -16,7 +21,6 @@ import {
   FormLabel,
   FormMessage,
 } from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -24,20 +28,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Textarea } from '@/components/atoms/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const formSchema = z.object({
   topic: z.string().min(2, {
-    message: 'Topic must be at least 2 characters.',
+    message: 'O tópico deve ter pelo menos 2 caracteres.',
   }),
   textType: z.string().min(1, {
-    message: 'Please select a text type.',
+    message: 'Selecione um tipo de texto.',
   }),
   instructions: z.string().optional(),
   agent: z.string().min(1, {
-    message: 'Please select an AI agent.',
+    message: 'Selecione um agente AI.',
   }),
 });
 
@@ -47,6 +50,7 @@ export function ChatInterface() {
   const [customAgents, setCustomAgents] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [isFetching, setIsFetching] = useState(true);
+  const [publicUserId, setPublicUserId] = useState<number | null>(null);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -58,26 +62,53 @@ export function ChatInterface() {
   });
 
   useEffect(() => {
-    fetchData();
+    fetchInitialData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchInitialData = async () => {
     setIsFetching(true);
     try {
-      const [agentsRes, historyRes] = await Promise.all([
-        fetch('/api/agents'),
-        fetch('/api/history'),
-      ]);
-      
-      if (agentsRes.ok) {
-        setCustomAgents(await agentsRes.json());
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get integer ID from public.users
+      let { data: publicUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', user.email)
+        .maybeSingle();
+
+      // If user doesn't exist in public.users, create them
+      if (!publicUser && user.email) {
+        const { data: newUser, error: insertError } = await supabase
+          .from('users')
+          .insert({
+            name: user.user_metadata?.full_name || user.email.split('@')[0],
+            email: user.email,
+          })
+          .select('id')
+          .maybeSingle();
+        
+        if (!insertError && newUser) {
+          publicUser = newUser;
+        }
       }
-      
-      if (historyRes.ok) {
-        setHistory(await historyRes.json());
+
+      if (publicUser) {
+        setPublicUserId(publicUser.id);
+        
+        // Fetch agents and history
+        const [agentsRes, historyRes] = await Promise.all([
+          supabase.from('ai_agents').select('*').eq('user_id', publicUser.id),
+          supabase.from('generations').select('*').eq('user_id', publicUser.id).order('created_at', { ascending: false })
+        ]);
+
+        if (agentsRes.data) setCustomAgents(agentsRes.data);
+        if (historyRes.data) setHistory(historyRes.data);
       }
     } catch (error) {
-      console.error('Failed to fetch data:', error);
+      console.error('Erro ao buscar dados:', error);
+      toast.error('Erro ao carregar dados do Supabase');
     } finally {
       setIsFetching(false);
     }
@@ -97,56 +128,40 @@ export function ChatInterface() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to generate text');
+        throw new Error('Falha ao gerar texto');
       }
 
       const data = await response.json();
       setGeneratedText(data.text);
-
-      // Save to history
-      await fetch('/api/history', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          topic: values.topic,
-          textType: values.textType,
-          content: data.text,
-          agentId: values.agent !== 'default' && values.agent !== 'creative' && values.agent !== 'professional' ? values.agent : null,
-        }),
-      });
+      toast.success('Texto gerado com sucesso!');
 
       // Refresh history
-      const historyRes = await fetch('/api/history');
-      if (historyRes.ok) {
-        setHistory(await historyRes.json());
+      if (publicUserId) {
+        const { data: newHistory } = await supabase
+          .from('generations')
+          .select('*')
+          .eq('user_id', publicUserId)
+          .order('created_at', { ascending: false });
+        
+        if (newHistory) setHistory(newHistory);
       }
     } catch (error) {
       console.error(error);
-      setGeneratedText('An error occurred while generating text. Please try again.');
+      toast.error('Erro ao gerar texto. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
   }
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-4">
-      <div className="flex justify-end mb-4 gap-2">
-        <Button variant="outline" size="sm" asChild>
-          <Link href="/settings">
-            <Settings className="mr-2 h-4 w-4" /> Settings
-          </Link>
-        </Button>
-      </div>
-
+    <div className="w-full max-w-6xl mx-auto">
       <Tabs defaultValue="chat" className="w-full">
         <TabsList className="grid w-full grid-cols-2 mb-8">
           <TabsTrigger value="chat" className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4" /> Chat
+            <MessageSquare className="h-4 w-4" /> Criar
           </TabsTrigger>
           <TabsTrigger value="history" className="flex items-center gap-2">
-            <History className="h-4 w-4" /> History
+            <History className="h-4 w-4" /> Histórico
           </TabsTrigger>
         </TabsList>
 
@@ -154,7 +169,10 @@ export function ChatInterface() {
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Chatbot Writer</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-slate-600" />
+                  Escritor AI
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <Form {...form}>
@@ -164,9 +182,9 @@ export function ChatInterface() {
                       name="topic"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Topic</FormLabel>
+                          <FormLabel>Tópico</FormLabel>
                           <FormControl>
-                            <Input placeholder="Enter the topic..." {...field} />
+                            <Input placeholder="Sobre o que vamos escrever?" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -177,20 +195,20 @@ export function ChatInterface() {
                       name="textType"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Text Type</FormLabel>
+                          <FormLabel>Tipo de Texto</FormLabel>
                           <Select onValueChange={field.onChange} defaultValue={field.value}>
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder="Select a text type" />
+                                <SelectValue placeholder="Selecione o formato" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="essay">Essay</SelectItem>
-                              <SelectItem value="article">Article</SelectItem>
-                              <SelectItem value="story">Story</SelectItem>
+                              <SelectItem value="essay">Redação</SelectItem>
+                              <SelectItem value="article">Artigo</SelectItem>
+                              <SelectItem value="story">História</SelectItem>
                               <SelectItem value="blog-post">Blog Post</SelectItem>
-                              <SelectItem value="social-media">Social Media Post</SelectItem>
-                              <SelectItem value="email">Email</SelectItem>
+                              <SelectItem value="social-media">Redes Sociais</SelectItem>
+                              <SelectItem value="email">E-mail</SelectItem>
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -202,11 +220,11 @@ export function ChatInterface() {
                       name="instructions"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Instructions (Optional)</FormLabel>
+                          <FormLabel>Instruções (Opcional)</FormLabel>
                           <FormControl>
                             <Textarea
-                              placeholder="Any specific instructions for the AI..."
-                              className="resize-none"
+                              placeholder="Algum detalhe específico ou tom de voz?"
+                              className="min-h-[100px]"
                               {...field}
                             />
                           </FormControl>
@@ -219,19 +237,19 @@ export function ChatInterface() {
                       name="agent"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>AI Agent</FormLabel>
+                          <FormLabel>Agente AI</FormLabel>
                           <Select onValueChange={field.onChange} defaultValue={field.value}>
                             <FormControl>
                               <SelectTrigger>
-                                <SelectValue placeholder="Select an AI agent" />
+                                <SelectValue placeholder="Selecione um agente" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              <SelectItem value="default">Default Assistant</SelectItem>
-                              <SelectItem value="creative">Creative Writer</SelectItem>
-                              <SelectItem value="professional">Professional Editor</SelectItem>
+                              <SelectItem value="default">Assistente Padrão</SelectItem>
+                              <SelectItem value="creative">Escritor Criativo</SelectItem>
+                              <SelectItem value="professional">Editor Profissional</SelectItem>
                               {customAgents.map((agent) => (
-                                <SelectItem key={agent.id} value={agent.id}>
+                                <SelectItem key={agent.id} value={agent.id.toString()}>
                                   {agent.name}
                                 </SelectItem>
                               ))}
@@ -245,12 +263,12 @@ export function ChatInterface() {
                       {isLoading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Generating...
+                          Gerando...
                         </>
                       ) : (
                         <>
                           <Send className="mr-2 h-4 w-4" />
-                          Generate Text
+                          Gerar Texto
                         </>
                       )}
                     </Button>
@@ -259,13 +277,18 @@ export function ChatInterface() {
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className="flex flex-col">
               <CardHeader>
-                <CardTitle>Generated Content</CardTitle>
+                <CardTitle>Conteúdo Gerado</CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="min-h-[400px] rounded-md border p-4 bg-muted/50 whitespace-pre-wrap font-sans overflow-auto max-h-[600px]">
-                  {generatedText || 'Your generated text will appear here...'}
+              <CardContent className="flex-1">
+                <div className="min-h-[400px] h-full rounded-md border border-slate-200 dark:border-slate-800 p-4 bg-slate-50/50 dark:bg-slate-900/50 whitespace-pre-wrap font-sans overflow-auto max-h-[600px]">
+                  {generatedText || (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                      <FileQuestion className="h-8 w-8 mb-2 opacity-20" />
+                      <p className="text-sm">Seu texto aparecerá aqui...</p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -275,32 +298,40 @@ export function ChatInterface() {
         <TabsContent value="history">
           <Card>
             <CardHeader>
-              <CardTitle>Chat History</CardTitle>
+              <CardTitle>Histórico de Gerações</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {isFetching ? (
-                  <div className="flex justify-center py-8">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  <div className="flex justify-center py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
                   </div>
                 ) : history.length === 0 ? (
-                  <p className="text-center text-muted-foreground py-8">No history yet.</p>
+                  <div className="text-center py-12 text-slate-500">
+                    Nenhum histórico encontrado.
+                  </div>
                 ) : (
                   history.map((item) => (
-                    <div key={item.id} className="p-4 border rounded-lg space-y-2">
+                    <div key={item.id} className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg space-y-3 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
                       <div className="flex justify-between items-start">
                         <div>
-                          <h3 className="font-semibold">{item.topic}</h3>
-                          <p className="text-xs text-muted-foreground">
-                            {item.textType} • {new Date(item.createdAt).toLocaleDateString()}
-                          </p>
+                          <h3 className="font-semibold text-slate-900 dark:text-slate-50">{item.topic}</h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="secondary">{item.text_type}</Badge>
+                            <span className="text-xs text-slate-500">
+                              {new Date(item.created_at).toLocaleDateString('pt-BR')}
+                            </span>
+                          </div>
                         </div>
-                        <Button variant="ghost" size="sm" onClick={() => setGeneratedText(item.content)}>
-                          Load
+                        <Button variant="outline" size="sm" onClick={() => {
+                          setGeneratedText(item.generated_text);
+                          toast.info('Texto carregado no visualizador');
+                        }}>
+                          Carregar
                         </Button>
                       </div>
-                      <p className="text-sm text-muted-foreground line-clamp-3 whitespace-pre-wrap">
-                        {item.content}
+                      <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 italic">
+                        &quot;{item.generated_text?.substring(0, 200)}...&quot;
                       </p>
                     </div>
                   ))
