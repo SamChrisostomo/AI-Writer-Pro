@@ -8,6 +8,7 @@ import { Loader2, Send, History, Settings, MessageSquare, Sparkles, FileQuestion
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { GoogleGenAI } from '@google/genai';
 
 import { Button } from '@/components/atoms/button';
 import { Input } from '@/components/atoms/input';
@@ -119,20 +120,57 @@ export function ChatInterface() {
     setGeneratedText('');
 
     try {
+      // 1. Generate text on the client side
+      const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
+      const modelName = 'gemini-3-flash-preview';
+      
+      let systemInstruction = 'You are a helpful AI writing assistant.';
+      if (values.agent === 'creative') {
+        systemInstruction = 'You are a creative writer. Use vivid imagery and metaphors.';
+      } else if (values.agent === 'professional') {
+        systemInstruction = 'You are a professional editor. Use formal and concise language.';
+      } else if (values.agent !== 'default') {
+        const selectedAgent = customAgents.find(a => a.id.toString() === values.agent);
+        if (selectedAgent) {
+          systemInstruction = selectedAgent.prompt;
+        }
+      }
+
+      const prompt = `Write a ${values.textType} about "${values.topic}".
+      
+      Instructions: ${values.instructions || 'None'}
+      `;
+
+      const genResponse = await ai.models.generateContent({
+        model: modelName,
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        config: {
+          systemInstruction,
+        },
+      });
+
+      const text = genResponse.text;
+      if (!text) throw new Error('A IA não retornou nenhum texto.');
+      
+      setGeneratedText(text);
+
+      // 2. Save to database via API
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(values),
+        body: JSON.stringify({
+          ...values,
+          generatedText: text,
+          modelName
+        }),
       });
 
       if (!response.ok) {
-        throw new Error('Falha ao gerar texto');
+        console.error('Falha ao salvar no banco de dados');
       }
 
-      const data = await response.json();
-      setGeneratedText(data.text);
       toast.success('Texto gerado com sucesso!');
 
       // Refresh history
