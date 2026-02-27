@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Loader2, Send, History, Settings, MessageSquare, Sparkles, FileQuestion, Copy, Check, Download, Share2, Trash2 } from 'lucide-react';
+import { Loader2, Send, History, Settings, MessageSquare, Sparkles, FileQuestion, Copy, Check, Download, Share2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { GoogleGenAI } from '@google/genai';
+import ReactMarkdown from 'react-markdown';
 
 import { Button } from '@/components/atoms/button';
 import { Input } from '@/components/atoms/input';
@@ -55,6 +56,11 @@ export function ChatInterface() {
   const [isFetching, setIsFetching] = useState(true);
   const [publicUserId, setPublicUserId] = useState<number | null>(null);
 
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const ITEMS_PER_PAGE = 6;
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -100,18 +106,51 @@ export function ChatInterface() {
       if (publicUser) {
         setPublicUserId(publicUser.id);
         
-        // Fetch agents and history
+        // Fetch agents and history concurrently with exact count for pagination
+        const from = 0;
+        const to = ITEMS_PER_PAGE - 1;
+
         const [agentsRes, historyRes] = await Promise.all([
           supabase.from('ai_agents').select('*').eq('user_id', publicUser.id),
-          supabase.from('generations').select('*').eq('user_id', publicUser.id).order('created_at', { ascending: false })
+          supabase
+            .from('generations')
+            .select('*', { count: 'exact' })
+            .eq('user_id', publicUser.id)
+            .order('created_at', { ascending: false })
+            .range(from, to)
         ]);
 
         if (agentsRes.data) setCustomAgents(agentsRes.data);
         if (historyRes.data) setHistory(historyRes.data);
+        if (historyRes.count) setTotalPages(Math.ceil(historyRes.count / ITEMS_PER_PAGE));
       }
     } catch (error) {
       console.error('Erro ao buscar dados:', error);
       toast.error('Erro ao carregar dados do Supabase');
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const fetchHistoryPage = async (userId: number, targetPage: number) => {
+    setIsFetching(true);
+    try {
+      const from = (targetPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+      
+      const { data, count } = await supabase
+        .from('generations')
+        .select('*', { count: 'exact' })
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .range(from, to);
+        
+      if (data) setHistory(data);
+      if (count) setTotalPages(Math.ceil(count / ITEMS_PER_PAGE));
+      setPage(targetPage);
+    } catch (error) {
+      console.error('Erro ao buscar histórico:', error);
+      toast.error('Erro ao carregar histórico');
     } finally {
       setIsFetching(false);
     }
@@ -181,13 +220,7 @@ export function ChatInterface() {
 
       // Refresh history
       if (publicUserId) {
-        const { data: newHistory } = await supabase
-          .from('generations')
-          .select('*')
-          .eq('user_id', publicUserId)
-          .order('created_at', { ascending: false });
-        
-        if (newHistory) setHistory(newHistory);
+        await fetchHistoryPage(publicUserId, 1);
       }
     } catch (error) {
       console.error(error);
@@ -350,7 +383,7 @@ export function ChatInterface() {
                     </div>
                   ) : generatedText ? (
                     <div className="prose prose-slate dark:prose-invert max-w-none">
-                      {generatedText}
+                      <ReactMarkdown>{generatedText}</ReactMarkdown>
                       {isLoading && (
                         <span className="inline-block w-2 h-5 ml-1 bg-primary animate-pulse align-middle" />
                       )}
@@ -445,6 +478,30 @@ export function ChatInterface() {
                         </p>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {totalPages > 1 && !isFetching && (
+                  <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800 mt-6">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => publicUserId && fetchHistoryPage(publicUserId, page - 1)}
+                      disabled={page === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+                    </Button>
+                    <span className="text-sm font-medium text-slate-500">
+                      Página {page} de {totalPages}
+                    </span>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => publicUserId && fetchHistoryPage(publicUserId, page + 1)}
+                      disabled={page === totalPages}
+                    >
+                      Próxima <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
                   </div>
                 )}
               </div>
