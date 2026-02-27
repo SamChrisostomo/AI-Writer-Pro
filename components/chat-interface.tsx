@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Loader2, Send, History, Settings, MessageSquare, Sparkles, FileQuestion } from 'lucide-react';
+import { Loader2, Send, History, Settings, MessageSquare, Sparkles, FileQuestion, Copy, Check, Download, Share2, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -12,8 +12,10 @@ import { GoogleGenAI } from '@google/genai';
 
 import { Button } from '@/components/atoms/button';
 import { Input } from '@/components/atoms/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/atoms/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/atoms/card';
 import { Badge } from '@/components/atoms/badge';
+import { ContentToolbar } from '@/components/molecules/content-toolbar';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Form,
   FormControl,
@@ -120,7 +122,7 @@ export function ChatInterface() {
     setGeneratedText('');
 
     try {
-      // 1. Generate text on the client side
+      // 1. Generate text on the client side with streaming
       const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
       const modelName = 'gemini-3-flash-preview';
       
@@ -141,7 +143,7 @@ export function ChatInterface() {
       Instructions: ${values.instructions || 'None'}
       `;
 
-      const genResponse = await ai.models.generateContent({
+      const streamResponse = await ai.models.generateContentStream({
         model: modelName,
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
@@ -149,11 +151,15 @@ export function ChatInterface() {
         },
       });
 
-      const text = genResponse.text;
-      if (!text) throw new Error('A IA não retornou nenhum texto.');
-      
-      setGeneratedText(text);
+      let fullText = '';
+      for await (const chunk of streamResponse) {
+        const chunkText = chunk.text || '';
+        fullText += chunkText;
+        setGeneratedText(fullText);
+      }
 
+      if (!fullText) throw new Error('A IA não retornou nenhum texto.');
+      
       // 2. Save to database via API
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -162,7 +168,7 @@ export function ChatInterface() {
         },
         body: JSON.stringify({
           ...values,
-          generatedText: text,
+          generatedText: fullText,
           modelName
         }),
       });
@@ -315,64 +321,131 @@ export function ChatInterface() {
               </CardContent>
             </Card>
 
-            <Card className="flex flex-col">
-              <CardHeader>
-                <CardTitle>Conteúdo Gerado</CardTitle>
+            <Card className="flex flex-col overflow-hidden border-primary/10 shadow-lg">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-lg font-bold">Conteúdo Gerado</CardTitle>
+                {generatedText && (
+                  <ContentToolbar 
+                    content={generatedText} 
+                    onClear={() => setGeneratedText('')}
+                    title={form.getValues('topic')}
+                  />
+                )}
               </CardHeader>
-              <CardContent className="flex-1">
-                <div className="min-h-[400px] h-full rounded-md border border-slate-200 dark:border-slate-800 p-4 bg-slate-50/50 dark:bg-slate-900/50 whitespace-pre-wrap font-sans overflow-auto max-h-[600px]">
-                  {generatedText || (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                      <FileQuestion className="h-8 w-8 mb-2 opacity-20" />
-                      <p className="text-sm">Seu texto aparecerá aqui...</p>
+              <CardContent className="flex-1 pt-4">
+                <div className="min-h-[400px] h-full rounded-xl border border-slate-200 dark:border-slate-800 p-6 bg-white dark:bg-slate-950 shadow-inner whitespace-pre-wrap font-sans overflow-auto max-h-[600px] relative">
+                  {isLoading && !generatedText ? (
+                    <div className="space-y-4">
+                      <Skeleton className="h-4 w-[90%]" />
+                      <Skeleton className="h-4 w-[80%]" />
+                      <Skeleton className="h-4 w-[95%]" />
+                      <Skeleton className="h-4 w-[70%]" />
+                      <Skeleton className="h-4 w-[85%]" />
+                      <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-slate-950/50 backdrop-blur-sm rounded-xl">
+                        <div className="flex flex-col items-center gap-3">
+                          <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                          <p className="text-sm font-medium text-primary animate-pulse">A IA está escrevendo...</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : generatedText ? (
+                    <div className="prose prose-slate dark:prose-invert max-w-none">
+                      {generatedText}
+                      {isLoading && (
+                        <span className="inline-block w-2 h-5 ml-1 bg-primary animate-pulse align-middle" />
+                      )}
+                    </div>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400 py-20">
+                      <div className="p-4 rounded-full bg-slate-100 dark:bg-slate-900 mb-4">
+                        <FileQuestion className="h-10 w-10 opacity-40" />
+                      </div>
+                      <p className="text-base font-medium">Pronto para começar?</p>
+                      <p className="text-sm opacity-70">Preencha o formulário ao lado para gerar seu conteúdo.</p>
                     </div>
                   )}
                 </div>
               </CardContent>
+              {generatedText && (
+                <CardFooter className="bg-slate-50 dark:bg-slate-900/50 border-t py-3 px-6 flex justify-between items-center">
+                  <span className="text-xs text-slate-500">
+                    {generatedText.split(/\s+/).filter(Boolean).length} palavras | {generatedText.length} caracteres
+                  </span>
+                  <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
+                    Gerado com Gemini 3 Flash
+                  </Badge>
+                </CardFooter>
+              )}
             </Card>
           </div>
         </TabsContent>
 
         <TabsContent value="history">
-          <Card>
+          <Card className="border-primary/10 shadow-lg">
             <CardHeader>
-              <CardTitle>Histórico de Gerações</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <History className="h-5 w-5 text-primary" />
+                Histórico de Gerações
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
                 {isFetching ? (
-                  <div className="flex justify-center py-12">
-                    <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+                  <div className="space-y-4">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg space-y-3">
+                        <div className="flex justify-between">
+                          <Skeleton className="h-5 w-1/3" />
+                          <Skeleton className="h-8 w-20" />
+                        </div>
+                        <Skeleton className="h-4 w-1/4" />
+                        <Skeleton className="h-10 w-full" />
+                      </div>
+                    ))}
                   </div>
                 ) : history.length === 0 ? (
-                  <div className="text-center py-12 text-slate-500">
-                    Nenhum histórico encontrado.
+                  <div className="text-center py-20 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-dashed">
+                    <History className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+                    <p className="text-slate-500 font-medium">Nenhum histórico encontrado.</p>
+                    <p className="text-sm text-slate-400">Suas gerações aparecerão aqui automaticamente.</p>
                   </div>
                 ) : (
-                  history.map((item) => (
-                    <div key={item.id} className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg space-y-3 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h3 className="font-semibold text-slate-900 dark:text-slate-50">{item.topic}</h3>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Badge variant="secondary">{item.text_type}</Badge>
-                            <span className="text-xs text-slate-500">
-                              {new Date(item.created_at).toLocaleDateString('pt-BR')}
-                            </span>
+                  <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-2">
+                    {history.map((item) => (
+                      <div key={item.id} className="group p-5 border border-slate-200 dark:border-slate-800 rounded-xl space-y-4 hover:border-primary/30 hover:shadow-md transition-all bg-white dark:bg-slate-950">
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <h3 className="font-bold text-slate-900 dark:text-slate-50 group-hover:text-primary transition-colors">{item.topic}</h3>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-none">
+                                {item.text_type}
+                              </Badge>
+                              <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
+                                {new Date(item.created_at).toLocaleDateString('pt-BR')}
+                              </span>
+                            </div>
                           </div>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary hover:text-white"
+                            onClick={() => {
+                              setGeneratedText(item.generated_text);
+                              toast.info('Texto carregado no visualizador');
+                              // Switch to chat tab
+                              const chatTab = document.querySelector('[value="chat"]') as HTMLElement;
+                              chatTab?.click();
+                            }}
+                          >
+                            Ver
+                          </Button>
                         </div>
-                        <Button variant="outline" size="sm" onClick={() => {
-                          setGeneratedText(item.generated_text);
-                          toast.info('Texto carregado no visualizador');
-                        }}>
-                          Carregar
-                        </Button>
+                        <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-3 leading-relaxed italic border-l-2 border-primary/20 pl-4 py-1">
+                          &quot;{item.generated_text}&quot;
+                        </p>
                       </div>
-                      <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 italic">
-                        &quot;{item.generated_text?.substring(0, 200)}...&quot;
-                      </p>
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 )}
               </div>
             </CardContent>
