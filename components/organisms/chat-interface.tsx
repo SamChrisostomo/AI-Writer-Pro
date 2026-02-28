@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/select';
 import { Textarea } from '@/components/atoms/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
 
 const formSchema = z.object({
   topic: z.string().min(2, {
@@ -55,6 +56,7 @@ export function ChatInterface() {
   const [history, setHistory] = useState<any[]>([]);
   const [isFetching, setIsFetching] = useState(true);
   const [publicUserId, setPublicUserId] = useState<number | null>(null);
+  const [preferredModel, setPreferredModel] = useState('gemini-3-flash-preview');
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -83,7 +85,7 @@ export function ChatInterface() {
       // Get integer ID from public.users
       let { data: publicUser } = await supabase
         .from('users')
-        .select('id')
+        .select('*')
         .eq('email', user.email)
         .maybeSingle();
 
@@ -95,7 +97,7 @@ export function ChatInterface() {
             name: user.user_metadata?.full_name || user.email.split('@')[0],
             email: user.email,
           })
-          .select('id')
+          .select('*')
           .maybeSingle();
         
         if (!insertError && newUser) {
@@ -105,6 +107,9 @@ export function ChatInterface() {
 
       if (publicUser) {
         setPublicUserId(publicUser.id);
+        if (publicUser.preferred_model) {
+          setPreferredModel(publicUser.preferred_model);
+        }
         
         // Fetch agents and history concurrently with exact count for pagination
         const from = 0;
@@ -163,7 +168,7 @@ export function ChatInterface() {
     try {
       // 1. Generate text on the client side with streaming
       const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
-      const modelName = 'gemini-3-flash-preview';
+      const modelName = preferredModel;
       
       let systemInstruction = 'You are a helpful AI writing assistant.';
       let temperature = 0.7;
@@ -416,7 +421,7 @@ export function ChatInterface() {
                     {generatedText.split(/\s+/).filter(Boolean).length} palavras | {generatedText.length} caracteres
                   </span>
                   <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
-                    Gerado com Gemini 3 Flash
+                    Gerado com {preferredModel}
                   </Badge>
                 </CardFooter>
               )}
@@ -456,38 +461,58 @@ export function ChatInterface() {
                 ) : (
                   <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-2">
                     {history.map((item) => (
-                      <div key={item.id} className="group p-5 border border-slate-200 dark:border-slate-800 rounded-xl space-y-4 hover:border-primary/30 hover:shadow-md transition-all bg-white dark:bg-slate-950">
-                        <div className="flex justify-between items-start">
-                          <div className="space-y-1">
-                            <h3 className="font-bold text-slate-900 dark:text-slate-50 group-hover:text-primary transition-colors">{item.topic}</h3>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="secondary" className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-none">
-                                {item.text_type}
-                              </Badge>
-                              <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
-                                {new Date(item.created_at).toLocaleDateString('pt-BR')}
-                              </span>
+                      <Drawer key={item.id}>
+                        <DrawerTrigger asChild>
+                          <div className="group p-5 border border-slate-200 dark:border-slate-800 rounded-xl space-y-4 hover:border-primary/30 hover:shadow-md transition-all bg-white dark:bg-slate-950 cursor-pointer">
+                            <div className="flex justify-between items-start">
+                              <div className="space-y-1">
+                                <h3 className="font-bold text-slate-900 dark:text-slate-50 group-hover:text-primary transition-colors">{item.topic}</h3>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-none">
+                                    {item.text_type}
+                                  </Badge>
+                                  <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
+                                    {new Date(item.created_at).toLocaleDateString('pt-BR')}
+                                  </span>
+                                </div>
+                              </div>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary hover:text-white"
+                              >
+                                Ver
+                              </Button>
                             </div>
+                            <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-3 leading-relaxed italic border-l-2 border-primary/20 pl-4 py-1">
+                              &quot;{item.generated_text}&quot;
+                            </p>
                           </div>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary hover:text-white"
-                            onClick={() => {
-                              setGeneratedText(item.generated_text);
-                              toast.info('Texto carregado no visualizador');
-                              // Switch to chat tab
-                              const chatTab = document.querySelector('[value="chat"]') as HTMLElement;
-                              chatTab?.click();
-                            }}
-                          >
-                            Ver
-                          </Button>
-                        </div>
-                        <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-3 leading-relaxed italic border-l-2 border-primary/20 pl-4 py-1">
-                          &quot;{item.generated_text}&quot;
-                        </p>
-                      </div>
+                        </DrawerTrigger>
+                        <DrawerContent>
+                          <div className="mx-auto w-full max-w-4xl p-6 overflow-y-auto max-h-[85vh]">
+                            <DrawerHeader className="px-0">
+                              <DrawerTitle className="text-2xl">{item.topic}</DrawerTitle>
+                              <DrawerDescription className="flex items-center gap-2 mt-2">
+                                <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-md text-xs font-medium">
+                                  {item.text_type}
+                                </span>
+                                <span>
+                                  {new Date(item.created_at).toLocaleDateString('pt-BR')}
+                                </span>
+                              </DrawerDescription>
+                            </DrawerHeader>
+                            <div className="prose prose-slate dark:prose-invert max-w-none mt-6 pb-12">
+                              <ReactMarkdown>{item.generated_text}</ReactMarkdown>
+                            </div>
+                            <DrawerFooter className="px-0 pt-6 border-t">
+                              <DrawerClose asChild>
+                                <Button variant="outline">Fechar</Button>
+                              </DrawerClose>
+                            </DrawerFooter>
+                          </div>
+                        </DrawerContent>
+                      </Drawer>
                     ))}
                   </div>
                 )}

@@ -15,6 +15,7 @@ import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function SettingsPage() {
   const [agents, setAgents] = React.useState<any[]>([]);
@@ -31,6 +32,7 @@ export default function SettingsPage() {
   const [isDialogOpen, setIsDialogOpen] = React.useState(false);
   
   const [profileName, setProfileName] = React.useState('');
+  const [preferredModel, setPreferredModel] = React.useState('gemini-3-flash-preview');
 
   React.useEffect(() => {
     fetchData();
@@ -66,6 +68,7 @@ export default function SettingsPage() {
       if (pUser) {
         setPublicUser(pUser);
         setProfileName(pUser.name || '');
+        setPreferredModel(pUser.preferred_model || 'gemini-3-flash-preview');
         const { data } = await supabase
           .from('ai_agents')
           .select('*')
@@ -144,7 +147,8 @@ export default function SettingsPage() {
     setUpdating(true);
     try {
       const { error } = await supabase.from('users').update({
-        name: profileName
+        name: profileName,
+        preferred_model: preferredModel
       }).eq('id', publicUser.id);
 
       if (error) throw error;
@@ -452,10 +456,25 @@ export default function SettingsPage() {
                       placeholder="Seu nome"
                     />
                   </div>
+                  <div className="grid gap-2">
+                    <Label>Modelo de IA Padrão</Label>
+                    <Select value={preferredModel} onValueChange={setPreferredModel}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione o modelo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="gemini-3-flash-preview">Gemini 3 Flash (Rápido)</SelectItem>
+                        <SelectItem value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Avançado)</SelectItem>
+                        <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
+                        <SelectItem value="gemini-2.5-pro">Gemini 2.5 Pro</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-slate-500">Este modelo será usado por padrão ao gerar novos textos.</p>
+                  </div>
                 </div>
               </CardContent>
               <CardFooter className="border-t pt-6">
-                <Button onClick={handleUpdateProfile} disabled={updating || !profileName || profileName === publicUser?.name}>
+                <Button onClick={handleUpdateProfile} disabled={updating || (!profileName && !preferredModel) || (profileName === publicUser?.name && preferredModel === publicUser?.preferred_model)}>
                   {updating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                   Salvar Perfil
                 </Button>
