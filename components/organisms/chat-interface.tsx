@@ -166,14 +166,23 @@ export function ChatInterface() {
       const modelName = 'gemini-3-flash-preview';
       
       let systemInstruction = 'You are a helpful AI writing assistant.';
+      let temperature = 0.7;
+      let topK = 40;
+
       if (values.agent === 'creative') {
         systemInstruction = 'You are a creative writer. Use vivid imagery and metaphors.';
+        temperature = 0.9;
+        topK = 40;
       } else if (values.agent === 'professional') {
         systemInstruction = 'You are a professional editor. Use formal and concise language.';
+        temperature = 0.3;
+        topK = 20;
       } else if (values.agent !== 'default') {
         const selectedAgent = customAgents.find(a => a.id.toString() === values.agent);
         if (selectedAgent) {
           systemInstruction = selectedAgent.prompt;
+          temperature = selectedAgent.temperature ?? 0.7;
+          topK = selectedAgent.top_k ?? 40;
         }
       }
 
@@ -187,6 +196,8 @@ export function ChatInterface() {
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
           systemInstruction,
+          temperature,
+          topK,
         },
       });
 
