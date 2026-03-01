@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Loader2, Send, History, Settings, MessageSquare, Sparkles, FileQuestion, Copy, Check, Download, Share2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, Send, History, Settings, MessageSquare, Sparkles, FileQuestion, Copy, Check, Download, Share2, Trash2, ChevronLeft, ChevronRight, Languages, ChevronDown, ChevronUp } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -17,6 +17,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Badge } from '@/components/atoms/badge';
 import { ContentToolbar } from '@/components/molecules/content-toolbar';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Form,
   FormControl,
@@ -54,14 +59,22 @@ export function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false);
   const [customAgents, setCustomAgents] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
+  const [translations, setTranslations] = useState<any[]>([]);
   const [isFetching, setIsFetching] = useState(true);
   const [publicUserId, setPublicUserId] = useState<number | null>(null);
   const [preferredModel, setPreferredModel] = useState('gemini-3-flash-preview');
+  const [isFormOpen, setIsFormOpen] = useState(true);
 
   // Pagination state
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  
+  const [transPage, setTransPage] = useState(1);
+  const [totalTransPages, setTotalTransPages] = useState(1);
+  
   const ITEMS_PER_PAGE = 6;
+
+  const [currentModel, setCurrentModel] = useState('gemini-3-flash-preview');
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -107,20 +120,25 @@ export function ChatInterface() {
 
       if (publicUser) {
         setPublicUserId(publicUser.id);
-        if (publicUser.preferred_model) {
-          setPreferredModel(publicUser.preferred_model);
-        }
         
         // Fetch agents and history concurrently with exact count for pagination
         const from = 0;
         const to = ITEMS_PER_PAGE - 1;
 
-        const [agentsRes, historyRes] = await Promise.all([
+        const [agentsRes, historyRes, transRes] = await Promise.all([
           supabase.from('ai_agents').select('*').eq('user_id', publicUser.id),
           supabase
             .from('generations')
             .select('*', { count: 'exact' })
             .eq('user_id', publicUser.id)
+            .neq('text_type', 'translation')
+            .order('created_at', { ascending: false })
+            .range(from, to),
+          supabase
+            .from('generations')
+            .select('*', { count: 'exact' })
+            .eq('user_id', publicUser.id)
+            .eq('text_type', 'translation')
             .order('created_at', { ascending: false })
             .range(from, to)
         ]);
@@ -128,6 +146,8 @@ export function ChatInterface() {
         if (agentsRes.data) setCustomAgents(agentsRes.data);
         if (historyRes.data) setHistory(historyRes.data);
         if (historyRes.count) setTotalPages(Math.ceil(historyRes.count / ITEMS_PER_PAGE));
+        if (transRes.data) setTranslations(transRes.data);
+        if (transRes.count) setTotalTransPages(Math.ceil(transRes.count / ITEMS_PER_PAGE));
       }
     } catch (error) {
       console.error('Erro ao buscar dados:', error);
@@ -147,6 +167,7 @@ export function ChatInterface() {
         .from('generations')
         .select('*', { count: 'exact' })
         .eq('user_id', userId)
+        .neq('text_type', 'translation')
         .order('created_at', { ascending: false })
         .range(from, to);
         
@@ -161,54 +182,74 @@ export function ChatInterface() {
     }
   };
 
+  const fetchTranslationsPage = async (userId: number, targetPage: number) => {
+    setIsFetching(true);
+    try {
+      const from = (targetPage - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+      
+      const { data, count } = await supabase
+        .from('generations')
+        .select('*', { count: 'exact' })
+        .eq('user_id', userId)
+        .eq('text_type', 'translation')
+        .order('created_at', { ascending: false })
+        .range(from, to);
+        
+      if (data) setTranslations(data);
+      if (count) setTotalTransPages(Math.ceil(count / ITEMS_PER_PAGE));
+      setTransPage(targetPage);
+    } catch (error) {
+      console.error('Erro ao buscar traduções:', error);
+      toast.error('Erro ao carregar traduções');
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     setGeneratedText('');
 
     try {
-      // 1. Generate text on the client side with streaming
-      const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
-      const modelName = preferredModel;
+      let modelName = 'gemini-3-flash-preview';
       
-      let systemInstruction = 'You are a helpful AI writing assistant.';
-      let temperature = 0.7;
-      let topK = 40;
-
-      if (values.agent === 'creative') {
-        systemInstruction = 'You are a creative writer. Use vivid imagery and metaphors.';
-        temperature = 0.9;
-        topK = 40;
-      } else if (values.agent === 'professional') {
-        systemInstruction = 'You are a professional editor. Use formal and concise language.';
-        temperature = 0.3;
-        topK = 20;
-      } else if (values.agent !== 'default') {
+      if (values.agent !== 'default' && values.agent !== 'creative' && values.agent !== 'professional') {
         const selectedAgent = customAgents.find(a => a.id.toString() === values.agent);
-        if (selectedAgent) {
-          systemInstruction = selectedAgent.prompt;
-          temperature = selectedAgent.temperature ?? 0.7;
-          topK = selectedAgent.top_k ?? 40;
+        if (selectedAgent && selectedAgent.model) {
+          modelName = selectedAgent.model;
         }
       }
-
-      const prompt = `Write a ${values.textType} about "${values.topic}".
       
-      Instructions: ${values.instructions || 'None'}
-      `;
-
-      const streamResponse = await ai.models.generateContentStream({
-        model: modelName,
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        config: {
-          systemInstruction,
-          temperature,
-          topK,
+      setCurrentModel(modelName);
+      
+      const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
+        body: JSON.stringify({
+          ...values,
+          modelName,
+          customAgents,
+        }),
       });
 
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Erro na geração de texto');
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Falha ao iniciar stream');
+
+      const decoder = new TextDecoder();
       let fullText = '';
-      for await (const chunk of streamResponse) {
-        const chunkText = chunk.text || '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunkText = decoder.decode(value, { stream: true });
         fullText += chunkText;
         setGeneratedText(fullText);
       }
@@ -216,7 +257,7 @@ export function ChatInterface() {
       if (!fullText) throw new Error('A IA não retornou nenhum texto.');
       
       // 2. Save to database via API
-      const response = await fetch('/api/chat', {
+      const saveResponse = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -228,7 +269,7 @@ export function ChatInterface() {
         }),
       });
 
-      if (!response.ok) {
+      if (!saveResponse.ok) {
         console.error('Falha ao salvar no banco de dados');
       }
 
@@ -238,37 +279,64 @@ export function ChatInterface() {
       if (publicUserId) {
         await fetchHistoryPage(publicUserId, 1);
       }
-    } catch (error) {
+      setIsFormOpen(false);
+    } catch (error: any) {
       console.error(error);
-      toast.error('Erro ao gerar texto. Tente novamente.');
+      toast.error(error.message || 'Erro ao gerar texto. Tente novamente.');
     } finally {
       setIsLoading(false);
     }
   }
 
+  const handleTranslationComplete = (translatedText: string) => {
+    setGeneratedText(translatedText);
+    if (publicUserId) {
+      fetchTranslationsPage(publicUserId, 1);
+    }
+  };
+
   return (
     <div className="w-full max-w-6xl mx-auto">
       <Tabs defaultValue="chat" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 mb-8">
+        <TabsList className="grid w-full grid-cols-3 mb-8">
           <TabsTrigger value="chat" className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" /> Criar
           </TabsTrigger>
           <TabsTrigger value="history" className="flex items-center gap-2">
             <History className="h-4 w-4" /> Histórico
           </TabsTrigger>
+          <TabsTrigger value="translations" className="flex items-center gap-2">
+            <Languages className="h-4 w-4" /> Traduções
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="chat">
           <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-slate-600" />
-                  Escritor AI
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Form {...form}>
+            <Card className="h-fit">
+              <Collapsible
+                open={isFormOpen}
+                onOpenChange={setIsFormOpen}
+                className="w-full"
+              >
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-slate-600" />
+                    Escritor AI
+                  </CardTitle>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="ghost" size="sm" className="w-9 p-0">
+                      {isFormOpen ? (
+                        <ChevronUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
+                      )}
+                      <span className="sr-only">Toggle form</span>
+                    </Button>
+                  </CollapsibleTrigger>
+                </CardHeader>
+                <CollapsibleContent className="space-y-2">
+                  <CardContent>
+                    <Form {...form}>
                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                     <FormField
                       control={form.control}
@@ -368,9 +436,11 @@ export function ChatInterface() {
                   </form>
                 </Form>
               </CardContent>
+              </CollapsibleContent>
+              </Collapsible>
             </Card>
 
-            <Card className="flex flex-col overflow-hidden border-primary/10 shadow-lg">
+            <Card className="flex flex-col overflow-hidden border-primary/10 shadow-lg h-full">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-lg font-bold">Conteúdo Gerado</CardTitle>
                 {generatedText && (
@@ -378,6 +448,7 @@ export function ChatInterface() {
                     content={generatedText} 
                     onClear={() => setGeneratedText('')}
                     title={form.getValues('topic')}
+                    onTranslate={handleTranslationComplete}
                   />
                 )}
               </CardHeader>
@@ -421,7 +492,7 @@ export function ChatInterface() {
                     {generatedText.split(/\s+/).filter(Boolean).length} palavras | {generatedText.length} caracteres
                   </span>
                   <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
-                    Gerado com {preferredModel}
+                    Gerado com {currentModel}
                   </Badge>
                 </CardFooter>
               )}
@@ -535,6 +606,122 @@ export function ChatInterface() {
                       size="sm" 
                       onClick={() => publicUserId && fetchHistoryPage(publicUserId, page + 1)}
                       disabled={page === totalPages}
+                    >
+                      Próxima <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="translations">
+          <Card className="border-primary/10 shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Languages className="h-5 w-5 text-primary" />
+                Textos Traduzidos
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {isFetching ? (
+                  <div className="space-y-4">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="p-4 border border-slate-200 dark:border-slate-800 rounded-lg space-y-3">
+                        <div className="flex justify-between">
+                          <Skeleton className="h-5 w-1/3" />
+                          <Skeleton className="h-8 w-20" />
+                        </div>
+                        <Skeleton className="h-4 w-1/4" />
+                        <Skeleton className="h-10 w-full" />
+                      </div>
+                    ))}
+                  </div>
+                ) : translations.length === 0 ? (
+                  <div className="text-center py-20 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-dashed">
+                    <Languages className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+                    <p className="text-slate-500 font-medium">Nenhuma tradução encontrada.</p>
+                    <p className="text-sm text-slate-400">Use o botão de tradução na barra de ferramentas para traduzir seus textos.</p>
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-2">
+                    {translations.map((item) => (
+                      <Drawer key={item.id}>
+                        <DrawerTrigger asChild>
+                          <div className="group p-5 border border-slate-200 dark:border-slate-800 rounded-xl space-y-4 hover:border-primary/30 hover:shadow-md transition-all bg-white dark:bg-slate-950 cursor-pointer">
+                            <div className="flex justify-between items-start">
+                              <div className="space-y-1">
+                                <h3 className="font-bold text-slate-900 dark:text-slate-50 group-hover:text-primary transition-colors">{item.topic}</h3>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="secondary" className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-none">
+                                    {item.text_type}
+                                  </Badge>
+                                  <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400">
+                                    {new Date(item.created_at).toLocaleDateString('pt-BR')}
+                                  </span>
+                                </div>
+                              </div>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="opacity-0 group-hover:opacity-100 transition-opacity hover:bg-primary hover:text-white"
+                              >
+                                Ver
+                              </Button>
+                            </div>
+                            <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-3 leading-relaxed italic border-l-2 border-primary/20 pl-4 py-1">
+                              &quot;{item.generated_text}&quot;
+                            </p>
+                          </div>
+                        </DrawerTrigger>
+                        <DrawerContent>
+                          <div className="mx-auto w-full max-w-4xl p-6 overflow-y-auto max-h-[85vh]">
+                            <DrawerHeader className="px-0">
+                              <DrawerTitle className="text-2xl">{item.topic}</DrawerTitle>
+                              <DrawerDescription className="flex items-center gap-2 mt-2">
+                                <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-md text-xs font-medium">
+                                  {item.text_type}
+                                </span>
+                                <span>
+                                  {new Date(item.created_at).toLocaleDateString('pt-BR')}
+                                </span>
+                              </DrawerDescription>
+                            </DrawerHeader>
+                            <div className="prose prose-slate dark:prose-invert max-w-none mt-6 pb-12">
+                              <ReactMarkdown>{item.generated_text}</ReactMarkdown>
+                            </div>
+                            <DrawerFooter className="px-0 pt-6 border-t">
+                              <DrawerClose asChild>
+                                <Button variant="outline">Fechar</Button>
+                              </DrawerClose>
+                            </DrawerFooter>
+                          </div>
+                        </DrawerContent>
+                      </Drawer>
+                    ))}
+                  </div>
+                )}
+
+                {totalTransPages > 1 && !isFetching && (
+                  <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800 mt-6">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => publicUserId && fetchTranslationsPage(publicUserId, transPage - 1)}
+                      disabled={transPage === 1}
+                    >
+                      <ChevronLeft className="h-4 w-4 mr-1" /> Anterior
+                    </Button>
+                    <span className="text-sm font-medium text-slate-500">
+                      Página {transPage} de {totalTransPages}
+                    </span>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => publicUserId && fetchTranslationsPage(publicUserId, transPage + 1)}
+                      disabled={transPage === totalTransPages}
                     >
                       Próxima <ChevronRight className="h-4 w-4 ml-1" />
                     </Button>
