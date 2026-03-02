@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { GoogleGenAI } from '@google/genai';
+import { ratelimit } from '@/lib/rate-limit';
 
 export async function POST(req: Request) {
   let publicUserId: number | null = null;
@@ -23,13 +24,39 @@ export async function POST(req: Request) {
     }
     publicUserId = publicUser.id;
 
+    // Rate Limiting Check
+    const ip = req.headers.get("x-forwarded-for") ?? "127.0.0.1";
+    const identifier = `user_${publicUserId}_ip_${ip}`;
+    const { success, limit, reset, remaining } = await ratelimit.limit(identifier);
+
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please try again later.', reset },
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Limit": limit.toString(),
+            "X-RateLimit-Remaining": remaining.toString(),
+            "X-RateLimit-Reset": reset.toString(),
+          },
+        }
+      );
+    }
+
     const { text, targetLanguage } = await req.json();
 
     if (!text || !targetLanguage) {
       return NextResponse.json({ error: 'Text and target language are required' }, { status: 400 });
     }
 
-    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    const { data: keys } = await supabase
+      .from('user_api_keys')
+      .select('provider, model_name, api_key')
+      .eq('user_id', publicUserId);
+
+    const googleKey = keys?.find(k => k.provider === 'google' && (k.model_name === 'all' || k.model_name === 'gemini-3-flash-preview'))?.api_key;
+    const apiKey = googleKey || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+
     if (!apiKey) {
       throw new Error('Chave de API do Gemini não configurada.');
     }
@@ -66,7 +93,7 @@ ${text}
         text_type: 'translation',
         instructions: `Idioma original detectado automaticamente. Traduzido para: ${targetLanguage}`,
         generated_text: translatedText,
-        model: 'gemini-3-flash-preview'
+        ai_model: 'gemini-3-flash-preview'
       })
       .select()
       .single();

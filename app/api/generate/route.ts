@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
+import { ratelimit } from '@/lib/rate-limit';
 
 export async function POST(req: Request) {
   let publicUserId: number | null = null;
@@ -23,6 +24,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     publicUserId = publicUser.id;
+
+    // Rate Limiting Check
+    const ip = req.headers.get("x-forwarded-for") ?? "127.0.0.1";
+    const identifier = `user_${publicUserId}_ip_${ip}`;
+    const { success, limit, reset, remaining } = await ratelimit.limit(identifier);
+
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please try again later.', reset },
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Limit": limit.toString(),
+            "X-RateLimit-Remaining": remaining.toString(),
+            "X-RateLimit-Reset": reset.toString(),
+          },
+        }
+      );
+    }
 
     const { topic, textType, instructions, agent, modelName, customAgents } = await req.json();
 

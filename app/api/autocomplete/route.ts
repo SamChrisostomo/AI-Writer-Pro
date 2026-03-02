@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 
 export async function POST(req: Request) {
@@ -33,41 +33,35 @@ export async function POST(req: Request) {
       throw new Error('Chave de API do Gemini não configurada.');
     }
 
-    const { text } = await req.json();
+    const ai = new GoogleGenAI({ apiKey });
 
-    if (!text) {
+    const { textBeforeCursor } = await req.json();
+
+    if (!textBeforeCursor) {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 });
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const prompt = `Você é um assistente de autocompletar texto (estilo GitHub Copilot). 
+O usuário está escrevendo o seguinte texto:
+"${textBeforeCursor}"
 
-    const prompt = `You are an advanced plagiarism and originality checker. Analyze the following text and provide an originality report.
-Return ONLY a JSON object with the following structure:
-{
-  "originalityScore": number (0-100, where 100 is completely original),
-  "plagiarismRisk": "Low" | "Medium" | "High",
-  "analysis": "A brief explanation of the findings, mentioning if it looks AI-generated or matches common patterns."
-}
-
-Text to analyze:
-"""
-${text}
-"""`;
+Continue a frase ou parágrafo de forma natural e fluida.
+Retorne APENAS o texto da continuação, sem aspas, sem explicações e sem repetir o que já foi escrito.
+Seja conciso (máximo de 1 a 2 frases).`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        responseMimeType: 'application/json',
-      },
+        systemInstruction: 'Retorne apenas a continuação exata do texto, sem formatação markdown ou aspas.',
+        temperature: 0.3,
+        maxOutputTokens: 50,
+      }
     });
 
-    const resultText = response.text || '{}';
-    const result = JSON.parse(resultText);
-
-    return NextResponse.json(result);
+    return NextResponse.json({ text: response.text?.trim() || '' });
   } catch (error: any) {
-    console.error('Plagiarism check error:', error);
-    return NextResponse.json({ error: 'Failed to check plagiarism' }, { status: 500 });
+    console.error('Error in autocomplete:', error);
+    return NextResponse.json({ error: error.message || 'Failed to autocomplete' }, { status: 500 });
   }
 }

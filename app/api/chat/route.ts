@@ -10,22 +10,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { topic, textType, instructions, generatedText, modelName } = await req.json();
+    const { topic, textType, instructions, generatedText, modelName, generationId } = await req.json();
 
     if (!generatedText) {
       return NextResponse.json({ error: 'Nenhum texto fornecido para salvar.' }, { status: 400 });
     }
 
     // 1. Save to 'texts' table (UUID based) - Don't block if this fails
-    try {
-      await supabase.from('texts').insert({
-        user_id: user.id,
-        title: topic,
-        content: generatedText,
-        category: textType,
-      });
-    } catch (err) {
-      console.error('Error saving to texts table:', err);
+    // We only insert here if it's a new generation
+    if (!generationId) {
+      try {
+        await supabase.from('texts').insert({
+          user_id: user.id,
+          title: topic,
+          content: generatedText,
+          category: textType,
+        });
+      } catch (err) {
+        console.error('Error saving to texts table:', err);
+      }
     }
 
     // 2. Save to 'generations' table (Integer based user_id)
@@ -50,14 +53,42 @@ export async function POST(req: Request) {
       }
 
       if (publicUser) {
-        await supabase.from('generations').insert({
-          user_id: publicUser.id,
-          topic: topic,
-          text_type: textType,
-          instructions: instructions,
-          ai_model: modelName || 'gemini-3-flash-preview',
-          generated_text: generatedText,
-        });
+        let savedGeneration;
+        
+        if (generationId) {
+          // Update existing
+          const { data } = await supabase.from('generations')
+            .update({
+              topic: topic,
+              text_type: textType,
+              instructions: instructions,
+              ai_model: modelName || 'gemini-3-flash-preview',
+              generated_text: generatedText
+            })
+            .eq('id', generationId)
+            .eq('user_id', publicUser.id)
+            .select('id')
+            .single();
+            
+          savedGeneration = data;
+        } else {
+          // Insert new
+          const { data } = await supabase.from('generations')
+            .insert({
+              user_id: publicUser.id,
+              topic: topic,
+              text_type: textType,
+              instructions: instructions,
+              ai_model: modelName || 'gemini-3-flash-preview',
+              generated_text: generatedText,
+            })
+            .select('id')
+            .single();
+            
+          savedGeneration = data;
+        }
+        
+        return NextResponse.json({ success: true, generationId: savedGeneration?.id });
       }
     } catch (err) {
       console.error('Error saving to generations/users table:', err);

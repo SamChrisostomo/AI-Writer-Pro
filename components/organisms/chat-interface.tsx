@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -10,6 +10,17 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { GoogleGenAI } from '@google/genai';
 import ReactMarkdown from 'react-markdown';
+
+import { marked } from 'marked';
+import NovelEditor from '@/components/organisms/novel-editor';
+
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertTriangle } from 'lucide-react';
+
+const MemoizedMarkdown = memo(({ content }: { content: string }) => {
+  return <ReactMarkdown>{content}</ReactMarkdown>;
+});
+MemoizedMarkdown.displayName = 'MemoizedMarkdown';
 
 import { Button } from '@/components/atoms/button';
 import { Input } from '@/components/atoms/input';
@@ -56,14 +67,31 @@ const formSchema = z.object({
 
 export function ChatInterface() {
   const [generatedText, setGeneratedText] = useState('');
+  const [editableHtml, setEditableHtml] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [customAgents, setCustomAgents] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [translations, setTranslations] = useState<any[]>([]);
   const [isFetching, setIsFetching] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [currentGenerationId, setCurrentGenerationId] = useState<number | null>(null);
   const [publicUserId, setPublicUserId] = useState<number | null>(null);
   const [preferredModel, setPreferredModel] = useState('gemini-3-flash-preview');
   const [isFormOpen, setIsFormOpen] = useState(true);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth >= 1024) {
+        setIsFormOpen(true);
+      }
+    };
+    
+    // Initial check
+    handleResize();
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -75,6 +103,28 @@ export function ChatInterface() {
   const ITEMS_PER_PAGE = 6;
 
   const [currentModel, setCurrentModel] = useState('gemini-3-flash-preview');
+
+  // Rate Limiting State
+  const [rateLimit, setRateLimit] = useState<{ isLimited: boolean; resetTime: number | null }>({ isLimited: false, resetTime: null });
+  const [countdown, setCountdown] = useState<number>(0);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (rateLimit.isLimited && rateLimit.resetTime) {
+      interval = setInterval(() => {
+        const now = Date.now();
+        const distance = rateLimit.resetTime! - now;
+        if (distance <= 0) {
+          setRateLimit({ isLimited: false, resetTime: null });
+          setCountdown(0);
+          clearInterval(interval);
+        } else {
+          setCountdown(Math.ceil(distance / 1000));
+        }
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [rateLimit]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -210,6 +260,7 @@ export function ChatInterface() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     setGeneratedText('');
+    setEditableHtml('');
 
     try {
       let modelName = 'gemini-3-flash-preview';
@@ -237,6 +288,10 @@ export function ChatInterface() {
 
       if (!response.ok) {
         const errData = await response.json();
+        if (response.status === 429) {
+          setRateLimit({ isLimited: true, resetTime: errData.reset });
+          throw new Error('Limite de requisições atingido. Aguarde para tentar novamente.');
+        }
         throw new Error(errData.error || 'Erro na geração de texto');
       }
 
@@ -256,6 +311,9 @@ export function ChatInterface() {
 
       if (!fullText) throw new Error('A IA não retornou nenhum texto.');
       
+      const parsedHtml = await marked.parse(fullText);
+      setEditableHtml(parsedHtml);
+      
       // 2. Save to database via API
       const saveResponse = await fetch('/api/chat', {
         method: 'POST',
@@ -271,6 +329,11 @@ export function ChatInterface() {
 
       if (!saveResponse.ok) {
         console.error('Falha ao salvar no banco de dados');
+      } else {
+        const data = await saveResponse.json();
+        if (data.generationId) {
+          setCurrentGenerationId(data.generationId);
+        }
       }
 
       toast.success('Texto gerado com sucesso!');
@@ -279,7 +342,9 @@ export function ChatInterface() {
       if (publicUserId) {
         await fetchHistoryPage(publicUserId, 1);
       }
-      setIsFormOpen(false);
+      if (window.innerWidth < 1024) {
+        setIsFormOpen(false);
+      }
     } catch (error: any) {
       console.error(error);
       toast.error(error.message || 'Erro ao gerar texto. Tente novamente.');
@@ -288,10 +353,50 @@ export function ChatInterface() {
     }
   }
 
-  const handleTranslationComplete = (translatedText: string) => {
+  const handleTranslationComplete = async (translatedText: string) => {
     setGeneratedText(translatedText);
+    const parsedHtml = await marked.parse(translatedText);
+    setEditableHtml(parsedHtml);
     if (publicUserId) {
       fetchTranslationsPage(publicUserId, 1);
+    }
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const values = form.getValues();
+      const saveResponse = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...values,
+          generatedText: editableHtml || generatedText,
+          modelName: currentModel,
+          generationId: currentGenerationId
+        }),
+      });
+
+      if (!saveResponse.ok) {
+        throw new Error('Falha ao salvar no banco de dados');
+      }
+
+      const data = await saveResponse.json();
+      if (data.generationId) {
+        setCurrentGenerationId(data.generationId);
+      }
+
+      toast.success('Texto salvo com sucesso!');
+      if (publicUserId) {
+        await fetchHistoryPage(publicUserId, 1);
+      }
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || 'Erro ao salvar texto.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -324,7 +429,7 @@ export function ChatInterface() {
                     Escritor AI
                   </CardTitle>
                   <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="w-9 p-0">
+                    <Button variant="ghost" size="sm" className="w-9 p-0 lg:hidden">
                       {isFormOpen ? (
                         <ChevronUp className="h-4 w-4" />
                       ) : (
@@ -336,6 +441,15 @@ export function ChatInterface() {
                 </CardHeader>
                 <CollapsibleContent className="space-y-2">
                   <CardContent>
+                    {rateLimit.isLimited && (
+                      <Alert variant="destructive" className="mb-6 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-900">
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>Limite Atingido</AlertTitle>
+                        <AlertDescription>
+                          Você atingiu o limite de gerações. Por favor, aguarde <strong>{countdown} segundos</strong> para tentar novamente.
+                        </AlertDescription>
+                      </Alert>
+                    )}
                     <Form {...form}>
                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                     <FormField
@@ -420,7 +534,7 @@ export function ChatInterface() {
                         </FormItem>
                       )}
                     />
-                    <Button type="submit" className="w-full" disabled={isLoading}>
+                    <Button type="submit" className="w-full" disabled={isLoading || rateLimit.isLimited}>
                       {isLoading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -445,10 +559,16 @@ export function ChatInterface() {
                 <CardTitle className="text-lg font-bold">Conteúdo Gerado</CardTitle>
                 {generatedText && (
                   <ContentToolbar 
-                    content={generatedText} 
-                    onClear={() => setGeneratedText('')}
+                    content={editableHtml || generatedText} 
+                    onClear={() => {
+                      setGeneratedText('');
+                      setEditableHtml('');
+                      setCurrentGenerationId(null);
+                    }}
                     title={form.getValues('topic')}
                     onTranslate={handleTranslationComplete}
+                    onSave={handleSave}
+                    isSaving={isSaving}
                   />
                 )}
               </CardHeader>
@@ -469,8 +589,15 @@ export function ChatInterface() {
                       </div>
                     </div>
                   ) : generatedText ? (
-                    <div className="prose prose-slate dark:prose-invert max-w-none">
-                      <ReactMarkdown>{generatedText}</ReactMarkdown>
+                    <div className="prose prose-slate dark:prose-invert max-w-none h-full">
+                      {editableHtml ? (
+                        <NovelEditor 
+                          initialContent={editableHtml} 
+                          onChange={(html) => setEditableHtml(html)} 
+                        />
+                      ) : (
+                        <MemoizedMarkdown content={generatedText} />
+                      )}
                       {isLoading && (
                         <span className="inline-block w-2 h-5 ml-1 bg-primary animate-pulse align-middle" />
                       )}
@@ -574,7 +701,7 @@ export function ChatInterface() {
                               </DrawerDescription>
                             </DrawerHeader>
                             <div className="prose prose-slate dark:prose-invert max-w-none mt-6 pb-12">
-                              <ReactMarkdown>{item.generated_text}</ReactMarkdown>
+                              <MemoizedMarkdown content={item.generated_text} />
                             </div>
                             <DrawerFooter className="px-0 pt-6 border-t">
                               <DrawerClose asChild>
@@ -690,7 +817,7 @@ export function ChatInterface() {
                               </DrawerDescription>
                             </DrawerHeader>
                             <div className="prose prose-slate dark:prose-invert max-w-none mt-6 pb-12">
-                              <ReactMarkdown>{item.generated_text}</ReactMarkdown>
+                              <MemoizedMarkdown content={item.generated_text} />
                             </div>
                             <DrawerFooter className="px-0 pt-6 border-t">
                               <DrawerClose asChild>
