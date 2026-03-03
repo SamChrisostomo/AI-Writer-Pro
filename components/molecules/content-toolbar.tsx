@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Copy, Check, Download, Share2, Trash2, ShieldCheck, Loader2, Languages, FileText, File, Save } from 'lucide-react';
+import { Copy, Check, Download, Share2, Trash2, ShieldCheck, Loader2, Languages, FileText, File } from 'lucide-react';
 import { Button } from '@/components/atoms/button';
 import { toast } from 'sonner';
 import { jsPDF } from 'jspdf';
@@ -50,11 +50,9 @@ interface ContentToolbarProps {
   onClear?: () => void;
   title?: string;
   onTranslate?: (translatedText: string) => void;
-  onSave?: () => void;
-  isSaving?: boolean;
 }
 
-export function ContentToolbar({ content, onClear, title, onTranslate, onSave, isSaving }: ContentToolbarProps) {
+export function ContentToolbar({ content, onClear, title, onTranslate }: ContentToolbarProps) {
   const [isCopied, setIsCopied] = React.useState(false);
   const [isCheckingPlagiarism, setIsCheckingPlagiarism] = React.useState(false);
   const [plagiarismReport, setPlagiarismReport] = React.useState<any>(null);
@@ -72,17 +70,10 @@ export function ContentToolbar({ content, onClear, title, onTranslate, onSave, i
     { code: 'pt', name: 'Português' },
   ];
 
-  const stripHtml = (html: string) => {
-    if (typeof document === 'undefined') return html;
-    const tmp = document.createElement('DIV');
-    tmp.innerHTML = html;
-    return tmp.textContent || tmp.innerText || '';
-  };
-
   const copyToClipboard = async () => {
     if (!content) return;
     try {
-      await navigator.clipboard.writeText(stripHtml(content));
+      await navigator.clipboard.writeText(content);
       setIsCopied(true);
       toast.success('Copiado para a área de transferência!');
       setTimeout(() => setIsCopied(false), 2000);
@@ -94,7 +85,7 @@ export function ContentToolbar({ content, onClear, title, onTranslate, onSave, i
   const downloadTxt = () => {
     if (!content) return;
     const element = document.createElement('a');
-    const file = new Blob([stripHtml(content)], { type: 'text/plain' });
+    const file = new Blob([content], { type: 'text/plain' });
     element.href = URL.createObjectURL(file);
     element.download = `${title || 'ai-content'}.txt`;
     document.body.appendChild(element);
@@ -107,7 +98,7 @@ export function ContentToolbar({ content, onClear, title, onTranslate, onSave, i
     if (!content) return;
     try {
       const doc = new jsPDF();
-      const splitText = doc.splitTextToSize(stripHtml(content), 180);
+      const splitText = doc.splitTextToSize(content, 180);
       doc.text(splitText, 15, 15);
       doc.save(`${title || 'ai-content'}.pdf`);
       toast.success('Download PDF iniciado!');
@@ -119,11 +110,10 @@ export function ContentToolbar({ content, onClear, title, onTranslate, onSave, i
   const downloadDocx = async () => {
     if (!content) return;
     try {
-      const plainText = stripHtml(content);
       const doc = new Document({
         sections: [{
           properties: {},
-          children: plainText.split('\n').map(line => new Paragraph({
+          children: content.split('\n').map(line => new Paragraph({
             children: [new TextRun(line)]
           }))
         }]
@@ -144,7 +134,7 @@ export function ContentToolbar({ content, onClear, title, onTranslate, onSave, i
       const response = await fetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: stripHtml(content), targetLanguage: langName }),
+        body: JSON.stringify({ text: content, targetLanguage: langName }),
       });
 
       if (!response.ok) {
@@ -196,26 +186,6 @@ export function ContentToolbar({ content, onClear, title, onTranslate, onSave, i
   return (
     <TooltipProvider>
       <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-        {onSave && (
-          <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
-                  onClick={onSave}
-                  disabled={!content || isSaving}
-                >
-                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Salvar Alterações</TooltipContent>
-            </Tooltip>
-            <div className="w-px h-4 bg-slate-300 dark:bg-slate-600 mx-1" />
-          </>
-        )}
-
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

@@ -49,14 +49,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Text and target language are required' }, { status: 400 });
     }
 
-    const { data: keys } = await supabase
-      .from('user_api_keys')
-      .select('provider, model_name, api_key')
-      .eq('user_id', publicUserId);
-
-    const googleKey = keys?.find(k => k.provider === 'google' && (k.model_name === 'all' || k.model_name === 'gemini-3-flash-preview'))?.api_key;
-    const apiKey = googleKey || process.env.NEXT_PUBLIC_GEMINI_API_KEY;
-
+    const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
     if (!apiKey) {
       throw new Error('Chave de API do Gemini não configurada.');
     }

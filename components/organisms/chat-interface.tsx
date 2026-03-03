@@ -11,9 +11,6 @@ import { toast } from 'sonner';
 import { GoogleGenAI } from '@google/genai';
 import ReactMarkdown from 'react-markdown';
 
-import { marked } from 'marked';
-import NovelEditor from '@/components/organisms/novel-editor';
-
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertTriangle } from 'lucide-react';
 
@@ -67,14 +64,11 @@ const formSchema = z.object({
 
 export function ChatInterface() {
   const [generatedText, setGeneratedText] = useState('');
-  const [editableHtml, setEditableHtml] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [customAgents, setCustomAgents] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [translations, setTranslations] = useState<any[]>([]);
   const [isFetching, setIsFetching] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [currentGenerationId, setCurrentGenerationId] = useState<number | null>(null);
   const [publicUserId, setPublicUserId] = useState<number | null>(null);
   const [preferredModel, setPreferredModel] = useState('gemini-3-flash-preview');
   const [isFormOpen, setIsFormOpen] = useState(true);
@@ -260,7 +254,6 @@ export function ChatInterface() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
     setGeneratedText('');
-    setEditableHtml('');
 
     try {
       let modelName = 'gemini-3-flash-preview';
@@ -311,9 +304,6 @@ export function ChatInterface() {
 
       if (!fullText) throw new Error('A IA não retornou nenhum texto.');
       
-      const parsedHtml = await marked.parse(fullText);
-      setEditableHtml(parsedHtml);
-      
       // 2. Save to database via API
       const saveResponse = await fetch('/api/chat', {
         method: 'POST',
@@ -329,11 +319,6 @@ export function ChatInterface() {
 
       if (!saveResponse.ok) {
         console.error('Falha ao salvar no banco de dados');
-      } else {
-        const data = await saveResponse.json();
-        if (data.generationId) {
-          setCurrentGenerationId(data.generationId);
-        }
       }
 
       toast.success('Texto gerado com sucesso!');
@@ -353,50 +338,10 @@ export function ChatInterface() {
     }
   }
 
-  const handleTranslationComplete = async (translatedText: string) => {
+  const handleTranslationComplete = (translatedText: string) => {
     setGeneratedText(translatedText);
-    const parsedHtml = await marked.parse(translatedText);
-    setEditableHtml(parsedHtml);
     if (publicUserId) {
       fetchTranslationsPage(publicUserId, 1);
-    }
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      const values = form.getValues();
-      const saveResponse = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...values,
-          generatedText: editableHtml || generatedText,
-          modelName: currentModel,
-          generationId: currentGenerationId
-        }),
-      });
-
-      if (!saveResponse.ok) {
-        throw new Error('Falha ao salvar no banco de dados');
-      }
-
-      const data = await saveResponse.json();
-      if (data.generationId) {
-        setCurrentGenerationId(data.generationId);
-      }
-
-      toast.success('Texto salvo com sucesso!');
-      if (publicUserId) {
-        await fetchHistoryPage(publicUserId, 1);
-      }
-    } catch (error: any) {
-      console.error(error);
-      toast.error(error.message || 'Erro ao salvar texto.');
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -559,16 +504,10 @@ export function ChatInterface() {
                 <CardTitle className="text-lg font-bold">Conteúdo Gerado</CardTitle>
                 {generatedText && (
                   <ContentToolbar 
-                    content={editableHtml || generatedText} 
-                    onClear={() => {
-                      setGeneratedText('');
-                      setEditableHtml('');
-                      setCurrentGenerationId(null);
-                    }}
+                    content={generatedText} 
+                    onClear={() => setGeneratedText('')}
                     title={form.getValues('topic')}
                     onTranslate={handleTranslationComplete}
-                    onSave={handleSave}
-                    isSaving={isSaving}
                   />
                 )}
               </CardHeader>
@@ -589,15 +528,8 @@ export function ChatInterface() {
                       </div>
                     </div>
                   ) : generatedText ? (
-                    <div className="prose prose-slate dark:prose-invert max-w-none h-full">
-                      {editableHtml ? (
-                        <NovelEditor 
-                          initialContent={editableHtml} 
-                          onChange={(html) => setEditableHtml(html)} 
-                        />
-                      ) : (
-                        <MemoizedMarkdown content={generatedText} />
-                      )}
+                    <div className="prose prose-slate dark:prose-invert max-w-none">
+                      <MemoizedMarkdown content={generatedText} />
                       {isLoading && (
                         <span className="inline-block w-2 h-5 ml-1 bg-primary animate-pulse align-middle" />
                       )}
