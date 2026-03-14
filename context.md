@@ -9,7 +9,7 @@ O **AI-Writer-Pro** é uma plataforma de auxílio à escrita baseada em IA, perm
 - **Framework**: Next.js 15 (App Router)
 - **Linguagem**: TypeScript
 - **Estilização**: Tailwind CSS 4
-- **Componentes**: Radix UI + Shadcn (Arquitetura Atomic Design)
+- **Componentes**: Radix UI + Shadcn (Arquitetura Feature-Based/DDD)
 - **Banco de Dados**: PostgreSQL (via Supabase)
 - **ORM**: Drizzle ORM
 - **Autenticação**: Supabase Auth (SSR)
@@ -22,7 +22,8 @@ O **AI-Writer-Pro** é uma plataforma de auxílio à escrita baseada em IA, perm
   - `/app/api`: Endpoints da API.
   - `/app/writer`: Interface principal do escritor.
   - `/app/dashboard`: Painel do usuário.
-- `/components`: Componentes seguindo Atomic Design (`atoms`, `molecules`, `organisms`, `templates`).
+- `/features`: Componentes organizados por domínio/funcionalidade (`auth`, `core`, `dashboard`, `writer`).
+- `/components/ui`: Componentes de interface base (primitivos Shadcn UI).
 - `/lib`: Utilitários, configurações de DB e esquemas.
   - `schema.ts`: Definições das tabelas `users`, `agents` e `chats`.
 - `/hooks`: Hooks React customizados.
@@ -37,12 +38,12 @@ O **AI-Writer-Pro** é uma plataforma de auxílio à escrita baseada em IA, perm
 - **Rate Limit**: Implementado via Upstash Redis (limite de 5 envios por minuto por padrão).
 
 ## 🎨 Padrões de Desenvolvimento
-- **Atomic Design**: Mantenha a separação clara entre componentes de differentes níveis.
+- **Feature-Based/DDD**: Agrupe componentes e lógicas por funcionalidade/domínio dentro de `/features/`.
 - **Server Components**: Use React Server Components (RSC) sempre que possível.
 - **Tailwind 4**: Utilize as novas funcionalidades do Tailwind 4.
 - **Tipagem**: TypeScript estrito é obrigatório.
 
 ## 🤖 Orientações para a IA
 1. **Contexto de Escrita**: Ao sugerir melhorias no `writer`, foque na experiência do usuário e na qualidade do prompt enviado às APIs de IA.
-2. **Novos Componentes**: Siga o padrão Atomic Design já estabelecido em `/components`.
+2. **Novos Componentes**: Siga o padrão Feature-Based/DDD estabelecendo novos componentes dentro de `/features/[dominio]` e utilize `/components/ui` para primitivos.
 3. **Segurança**: Sempre verifique se as operações de banco de dados estão vinculadas ao `userId` do usuário autenticado via Supabase.

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { Copy, Check, Download, Share2, Trash2, ShieldCheck, Loader2, Languages, FileText, File } from 'lucide-react';
-import { Button } from '@/components/atoms/button';
+import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
@@ -43,7 +43,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Badge } from '@/components/atoms/badge';
+import { Badge } from '@/components/ui/badge';
 
 interface ContentToolbarProps {
   content: string;

@@ -1,8 +1,8 @@
 import type {Metadata} from 'next';
 import { Analytics } from '@vercel/analytics/react';
 import './globals.css';
-import { Toaster } from '@/components/atoms/toaster';
-import { ThemeProvider } from '@/components/atoms/theme-provider';
+import { Toaster } from '@/features/core/components/toaster';
+import { ThemeProvider } from '@/features/core/components/theme-provider';
 import { TooltipProvider } from '@/components/ui/tooltip';
 
 export const metadata: Metadata = {

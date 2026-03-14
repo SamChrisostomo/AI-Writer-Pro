@@ -1,5 +1,5 @@
-import { ChatInterface } from '@/components/organisms/chat-interface';
-import { MainLayout } from '@/components/templates/main-layout';
+import { ChatInterface } from '@/features/writer/components/chat-interface';
+import { MainLayout } from '@/features/core/components/main-layout';
 
 export default function WriterPage() {
   return (

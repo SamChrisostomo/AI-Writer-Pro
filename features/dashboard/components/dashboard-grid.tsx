@@ -1,11 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { DashboardCard } from '@/components/molecules/dashboard-card';
+import { DashboardCard } from '@/features/dashboard/components/dashboard-card';
 import { supabase } from '@/lib/supabase';
 import { Loader2, FileQuestion } from 'lucide-react';
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@/components/ui/drawer';
-import { Button } from '@/components/atoms/button';
+import { Button } from '@/components/ui/button';
 import ReactMarkdown from 'react-markdown';
 
 export function DashboardGrid() {

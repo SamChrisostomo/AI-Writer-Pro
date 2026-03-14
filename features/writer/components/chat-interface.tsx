@@ -19,11 +19,11 @@ const MemoizedMarkdown = memo(({ content }: { content: string }) => {
 });
 MemoizedMarkdown.displayName = 'MemoizedMarkdown';
 
-import { Button } from '@/components/atoms/button';
-import { Input } from '@/components/atoms/input';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/atoms/card';
-import { Badge } from '@/components/atoms/badge';
-import { ContentToolbar } from '@/components/molecules/content-toolbar';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { ContentToolbar } from '@/features/writer/components/content-toolbar';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Collapsible,
@@ -45,7 +45,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/atoms/textarea';
+import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer';
 

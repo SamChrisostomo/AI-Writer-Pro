@@ -1,11 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { MainLayout } from '@/components/templates/main-layout';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/atoms/card';
-import { Button } from '@/components/atoms/button';
-import { Input } from '@/components/atoms/input';
-import { Textarea } from '@/components/atoms/textarea';
+import { MainLayout } from '@/features/core/components/main-layout';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { Loader2, Plus, Trash2, Bot, User, Upload, Info, Key, AlertTriangle, Check, ChevronsUpDown } from 'lucide-react';

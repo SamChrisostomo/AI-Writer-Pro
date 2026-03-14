@@ -1,8 +1,8 @@
 'use client';
 
-import { Sidebar } from '@/components/organisms/sidebar';
+import { Sidebar } from '@/features/core/components/sidebar';
 import { motion } from 'motion/react';
-import { ModeToggle } from '@/components/molecules/mode-toggle';
+import { ModeToggle } from '@/features/core/components/mode-toggle';
 
 export function MainLayout({ children }: { children: React.ReactNode }) {
   return (

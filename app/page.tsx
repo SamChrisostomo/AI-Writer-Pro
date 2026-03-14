@@ -1,4 +1,4 @@
-import { LoginForm } from '@/components/molecules/login-form';
+import { LoginForm } from '@/features/auth/components/login-form';
 import { Sparkles } from 'lucide-react';
 import Link from 'next/link';
 

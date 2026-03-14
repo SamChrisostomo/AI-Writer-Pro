@@ -13,7 +13,7 @@ import {
   X,
   Sparkles
 } from 'lucide-react';
-import { Button } from '@/components/atoms/button';
+import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 
 const navItems = [
